@@ -112,6 +112,85 @@ window.msg.error(window.safeHtml(`
 })
 ```
 
+## 在自定义按钮的返回 JS 中调用
+
+`OperationHandler.exec()` 的返回值会被前端通过 `new Function()` 直接执行为 JavaScript。利用这一机制，可以在 Java 后端返回 JS 表达式来弹出各类消息。
+
+`FrontendNotify` 是一个纯静态工具类，无需注入，直接在 `exec()` 中 return 即可：
+
+```java
+import cn.joyfulmemory.ims.core.util.FrontendNotifyService.FrontendNotify;
+
+@Slf4j
+@Component
+public class MyHandler implements OperationHandler<MyEntity, Void> {
+
+    @Override
+    public String exec(List<MyEntity> data, Void vo, String[] param) {
+        // ... 业务逻辑 ...
+        return FrontendNotify.msgSuccess("操作完成");
+        // 前端执行: window.msg.success("操作完成")
+    }
+}
+```
+
+### 全局消息提示
+
+```java
+return FrontendNotify.msgInfo("这是一条提示");
+return FrontendNotify.msgSuccess("操作成功");
+return FrontendNotify.msgError("操作失败");
+return FrontendNotify.msgWarning("请注意");
+```
+
+### 弹窗提示
+
+```java
+return FrontendNotify.modalInfo("提示", "这是一条通知消息");
+return FrontendNotify.modalSuccess("成功", "数据已保存");
+return FrontendNotify.modalError("错误", "发生了异常");
+return FrontendNotify.modalWarning("警告", "请确认操作");
+return FrontendNotify.modalConfirm("确认", "确定要删除该记录吗？");
+return FrontendNotify.modalCloseAll();
+```
+
+### 通知面板
+
+```java
+return FrontendNotify.notifyInfo("系统通知", "您有新的待办事项");
+return FrontendNotify.notifySuccess("任务完成", "报表已生成");
+return FrontendNotify.notifyError("任务失败", "导出超时");
+return FrontendNotify.notifyWarning("磁盘空间", "剩余空间不足 10%");
+return FrontendNotify.notifyBlank("公告", "系统将于今晚 22:00 维护");
+```
+
+### 在 OperationHandler 中的典型用法
+
+```java
+@Slf4j
+@Component
+public class SyncHandler implements OperationHandler<MyEntity, Void> {
+
+    @Override
+    public String exec(List<MyEntity> data, Void vo, String[] param) {
+        if (data == null || data.isEmpty()) {
+            return FrontendNotify.msgError("请选择一条记录");
+        }
+        try {
+            // ... 业务逻辑 ...
+            return FrontendNotify.msgSuccess("同步成功，共处理 " + data.size() + " 条");
+        } catch (Exception e) {
+            log.error("同步失败", e);
+            return FrontendNotify.msgError("同步失败: " + e.getMessage());
+        }
+    }
+}
+```
+
+::: tip
+`FrontendNotify` 方法返回的是 JS 表达式字符串，仅适用于 `exec()` 返回值场景。如需在执行过程中主动推送消息（如 loading 进度），请使用 `FrontendNotifyService`（WebSocket 推送）。
+:::
+
 ## Java 后端推送（WebSocket）
 
 ::: warning 前提条件
