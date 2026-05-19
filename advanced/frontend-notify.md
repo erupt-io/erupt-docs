@@ -111,3 +111,194 @@ window.msg.error(window.safeHtml(`
     nzDuration: 5000
 })
 ```
+
+## 在自定义按钮的返回 JS 中调用
+
+`OperationHandler.exec()` 的返回值会被前端通过 `new Function()` 直接执行为 JavaScript。利用这一机制，可以在 Java 后端返回 JS 表达式来弹出各类消息。
+
+`FrontendNotify` 是一个纯静态工具类，无需注入，直接在 `exec()` 中 return 即可：
+
+```java
+import cn.joyfulmemory.ims.core.util.FrontendNotifyService.FrontendNotify;
+
+@Slf4j
+@Component
+public class MyHandler implements OperationHandler<MyEntity, Void> {
+
+    @Override
+    public String exec(List<MyEntity> data, Void vo, String[] param) {
+        // ... 业务逻辑 ...
+        return FrontendNotify.msgSuccess("操作完成");
+        // 前端执行: window.msg.success("操作完成")
+    }
+}
+```
+
+### 全局消息提示
+
+```java
+return FrontendNotify.msgInfo("这是一条提示");
+return FrontendNotify.msgSuccess("操作成功");
+return FrontendNotify.msgError("操作失败");
+return FrontendNotify.msgWarning("请注意");
+```
+
+### 弹窗提示
+
+```java
+return FrontendNotify.modalInfo("提示", "这是一条通知消息");
+return FrontendNotify.modalSuccess("成功", "数据已保存");
+return FrontendNotify.modalError("错误", "发生了异常");
+return FrontendNotify.modalWarning("警告", "请确认操作");
+return FrontendNotify.modalConfirm("确认", "确定要删除该记录吗？");
+return FrontendNotify.modalCloseAll();
+```
+
+### 通知面板
+
+```java
+return FrontendNotify.notifyInfo("系统通知", "您有新的待办事项");
+return FrontendNotify.notifySuccess("任务完成", "报表已生成");
+return FrontendNotify.notifyError("任务失败", "导出超时");
+return FrontendNotify.notifyWarning("磁盘空间", "剩余空间不足 10%");
+return FrontendNotify.notifyBlank("公告", "系统将于今晚 22:00 维护");
+```
+
+### 在 OperationHandler 中的典型用法
+
+```java
+@Slf4j
+@Component
+public class SyncHandler implements OperationHandler<MyEntity, Void> {
+
+    @Override
+    public String exec(List<MyEntity> data, Void vo, String[] param) {
+        if (data == null || data.isEmpty()) {
+            return FrontendNotify.msgError("请选择一条记录");
+        }
+        try {
+            // ... 业务逻辑 ...
+            return FrontendNotify.msgSuccess("同步成功，共处理 " + data.size() + " 条");
+        } catch (Exception e) {
+            log.error("同步失败", e);
+            return FrontendNotify.msgError("同步失败: " + e.getMessage());
+        }
+    }
+}
+```
+
+::: tip
+`FrontendNotify` 方法返回的是 JS 表达式字符串，仅适用于 `exec()` 返回值场景。如需在执行过程中主动推送消息（如 loading 进度），请使用 `FrontendNotifyService`（WebSocket 推送）。
+:::
+
+## Java 后端推送（WebSocket）
+
+::: warning 前提条件
+使用后端推送功能必须先引入 `erupt-websocket` 模块依赖：
+
+```xml
+<dependency>
+    <groupId>xyz.erupt</groupId>
+    <artifactId>erupt-websocket</artifactId>
+</dependency>
+```
+
+前端页面需建立 WebSocket 连接（Erupt 框架默认自动连接），否则后端推送无法到达前端。
+:::
+
+`FrontendNotifyService` 是一个封装好的工具类，可在 `OperationHandler`、`DataProxy`、`Service` 等后端代码中通过 WebSocket 向当前用户的前端推送各类消息通知。
+
+```java
+@Resource
+private FrontendNotifyService frontendNotifyService;
+```
+
+### 全局消息提示（msg）
+
+```java
+frontendNotifyService.msgInfo("操作成功");
+frontendNotifyService.msgSuccess("数据已保存");
+frontendNotifyService.msgError("提交失败，请重试");
+frontendNotifyService.msgWarning("该功能即将下线");
+
+// 带选项：5 秒后自动消失
+frontendNotifyService.msgInfo("提示消息", Map.of("nzDuration", 5000));
+```
+
+### Loading 指示器
+
+```java
+// 显示 loading，返回唯一 ID
+String loadingId = frontendNotifyService.msgLoading("正在处理...");
+
+try {
+    // ... 执行耗时操作 ...
+} finally {
+    // 关闭 loading
+    frontendNotifyService.msgRemove(loadingId);
+}
+```
+
+### 弹窗提示（modal）
+
+```java
+frontendNotifyService.modalInfo("提示", "这是一条通知消息");
+frontendNotifyService.modalSuccess("成功", "操作已完成");
+frontendNotifyService.modalError("错误", "发生了错误");
+frontendNotifyService.modalWarning("警告", "请确认操作");
+frontendNotifyService.modalConfirm("确认", "确定要删除该记录吗？");
+
+// 关闭所有弹窗
+frontendNotifyService.modalCloseAll();
+```
+
+### 通知面板（notify）
+
+```java
+frontendNotifyService.notifyInfo("系统通知", "您有新的待办事项");
+frontendNotifyService.notifySuccess("任务完成", "报表已生成");
+frontendNotifyService.notifyError("任务失败", "导出超时");
+frontendNotifyService.notifyWarning("磁盘空间", "剩余空间不足 10%");
+frontendNotifyService.notifyBlank("公告", "系统将于今晚 22:00 维护");
+
+// 带选项：显示在左下角
+frontendNotifyService.notifySuccess("完成", "导出成功", Map.of("nzPlacement", "bottomLeft"));
+```
+
+### 广播（所有在线用户）
+
+```java
+frontendNotifyService.broadcastMsgInfo("系统将于今晚 22:00 进行维护");
+frontendNotifyService.broadcastNotifyInfo("系统公告", "新版本已发布，请刷新页面");
+```
+
+### 在 OperationHandler 中使用示例
+
+```java
+@Slf4j
+@Component
+public class MyHandler implements OperationHandler<MyEntity, Void> {
+
+    @Resource
+    private FrontendNotifyService notify;
+
+    @Override
+    public String exec(List<MyEntity> data, Void vo, String[] param) {
+        String loadingId = notify.msgLoading("正在同步数据...");
+        try {
+            // ... 业务逻辑 ...
+            notify.msgSuccess("同步完成");
+            return "操作成功";
+        } catch (Exception e) {
+            notify.msgError("同步失败: " + e.getMessage());
+            return "操作失败: " + e.getMessage();
+        } finally {
+            notify.msgRemove(loadingId);
+        }
+    }
+}
+```
+
+::: info 安全说明
+`FrontendNotifyService` 使用 `GsonFactory.getGson().toJson()` 对所有用户输入进行转义，防止 JavaScript 注入。可安全用于包含特殊字符（引号、换行、HTML 标签等）的消息内容。
+:::
